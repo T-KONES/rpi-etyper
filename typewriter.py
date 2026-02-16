@@ -166,6 +166,9 @@ class EtyperApp:
         self.lines_per_page = 20
         self.needs_display_update = True
         self.scroll_offset = 0  # first visible wrapped-line index
+        self._bt_agent = None  # reusable D-Bus BT agent
+        self._bt_bus = None  # reusable D-Bus system bus
+        self._dbus_mainloop_set = False  # ensure mainloop set only once
 
     def _find_font(self):
         """Find a suitable monospace font."""
@@ -670,7 +673,7 @@ class EtyperApp:
     BT_PAN_PORT = 443
     BT_PAN_TIMEOUT = 300  # auto-shutdown after 5 minutes
     BT_AGENT_PATH = "/etyper/agent"
-    BT_CERT_DIR = "/tmp/etyper_ssl"
+    BT_CERT_DIR = os.path.join(DOCS_DIR, ".ssl")  # persistent across reboots
 
     def _file_server_mode(self):
         """Start Bluetooth PAN + web server, show instructions, wait for Ctrl+F."""
@@ -713,28 +716,37 @@ class EtyperApp:
             self._resume_typewriter_display()
             return
 
-        server = self._start_file_server(self.BT_PAN_PORT)
-        if server is None:
+        server = None
+        http_server = None
+        try:
+            server = self._start_file_server(self.BT_PAN_PORT)
+            if server is None:
+                print("Could not start HTTPS server.")
+                return
+
+            # Also start plain HTTP on port 8080 as fallback for devices
+            # that don't handle self-signed certs well
+            http_server = self._start_file_server(8080, use_ssl=False)
+
+            print(f"File server ready at {url}")
+
+            # Wait for Ctrl+F or timeout
+            self._wait_for_key_or_timeout(ecodes.KEY_F, self.BT_PAN_TIMEOUT)
+        finally:
+            # Guaranteed cleanup regardless of exceptions
+            print("Stopping file server...")
+            if server:
+                try:
+                    server.shutdown()
+                except Exception:
+                    pass
+            if http_server:
+                try:
+                    http_server.shutdown()
+                except Exception:
+                    pass
             self._stop_bt_pan(bt_state)
-            self._resume_typewriter_display()
-            return
-
-        # Also start plain HTTP on port 8080 as fallback for devices
-        # that don't handle self-signed certs well
-        http_server = self._start_file_server(8080, use_ssl=False)
-
-        print(f"File server ready at {url}")
-
-        # Wait for Ctrl+F or timeout
-        self._wait_for_key_or_timeout(ecodes.KEY_F, self.BT_PAN_TIMEOUT)
-
-        # Shut down
-        print("Stopping file server...")
-        server.shutdown()
-        if http_server:
-            http_server.shutdown()
-        self._stop_bt_pan(bt_state)
-        print("File server stopped.")
+            print("File server stopped.")
 
         self._resume_typewriter_display()
 
@@ -752,8 +764,15 @@ class EtyperApp:
         print("Starting Bluetooth PAN...")
 
         try:
-            dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-            bus = dbus.SystemBus()
+            # Set up D-Bus mainloop only once (repeated calls cause conflicts)
+            if not self._dbus_mainloop_set:
+                dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+                self._dbus_mainloop_set = True
+
+            # Reuse bus connection (D-Bus returns same conn anyway, but be explicit)
+            if self._bt_bus is None:
+                self._bt_bus = dbus.SystemBus()
+            bus = self._bt_bus
 
             # Power on adapter
             props = dbus.Interface(
@@ -763,12 +782,17 @@ class EtyperApp:
             props.Set("org.bluez.Adapter1", "Powered", True)
             time.sleep(0.5)
 
-            # Register auto-accept agent
-            agent = _BtAutoAcceptAgent(bus, self.BT_AGENT_PATH)
+            # Register auto-accept agent (reuse if already created)
+            if self._bt_agent is None:
+                self._bt_agent = _BtAutoAcceptAgent(bus, self.BT_AGENT_PATH)
             mgr = dbus.Interface(
                 bus.get_object("org.bluez", "/org/bluez"),
                 "org.bluez.AgentManager1",
             )
+            try:
+                mgr.UnregisterAgent(self.BT_AGENT_PATH)
+            except Exception:
+                pass
             mgr.RegisterAgent(self.BT_AGENT_PATH, "DisplayYesNo")
             mgr.RequestDefaultAgent(self.BT_AGENT_PATH)
             print("  BT agent registered (auto-accept)")
@@ -836,7 +860,7 @@ class EtyperApp:
             print("Bluetooth PAN ready. Waiting for connections...")
             return {
                 "bus": bus,
-                "agent": agent,
+                "agent": self._bt_agent,
                 "mgr": mgr,
                 "props": props,
                 "net_server": net_server,
@@ -846,31 +870,67 @@ class EtyperApp:
 
         except Exception as e:
             print(f"BT PAN setup failed: {e}")
+            # Best-effort cleanup of anything partially started
+            try:
+                dnsmasq.terminate()
+            except Exception:
+                pass
             subprocess.run(["ip", "link", "del", self.BT_PAN_BRIDGE],
                            capture_output=True)
+            self._bt_power_off()
             return None
 
     def _stop_bt_pan(self, state):
-        """Tear down Bluetooth PAN, disconnect devices, and power off Bluetooth."""
+        """Tear down Bluetooth PAN, disconnect devices, and power off Bluetooth.
+
+        Each step is wrapped individually so one failure doesn't prevent the rest.
+        """
         print("Stopping Bluetooth PAN...")
+
+        # 1. Stop DHCP server
         try:
             state["dnsmasq"].terminate()
+            state["dnsmasq"].wait(timeout=3)
+        except Exception as e:
+            print(f"  dnsmasq stop warning: {e}")
+            try:
+                state["dnsmasq"].kill()
+            except Exception:
+                pass
+
+        # 2. Stop GLib mainloop
+        try:
             state["loop"].quit()
+        except Exception as e:
+            print(f"  mainloop stop warning: {e}")
+
+        # 3. Unregister NAP server
+        try:
             state["net_server"].Unregister("nap")
+        except Exception as e:
+            print(f"  NAP unregister warning: {e}")
+
+        # 4. Make adapter non-discoverable
+        try:
             state["props"].Set("org.bluez.Adapter1", "Discoverable", False)
             state["props"].Set("org.bluez.Adapter1", "Pairable", False)
+        except Exception as e:
+            print(f"  adapter config warning: {e}")
+
+        # 5. Unregister agent from BlueZ (keep self._bt_agent for reuse)
+        try:
             state["mgr"].UnregisterAgent(self.BT_AGENT_PATH)
         except Exception as e:
-            print(f"  BT cleanup warning: {e}")
+            print(f"  agent unregister warning: {e}")
 
-        # Disconnect all connected BT devices
+        # 6. Disconnect all connected BT devices
         self._bt_disconnect_all()
 
-        # Remove bridge
+        # 7. Remove bridge
         subprocess.run(["ip", "link", "del", self.BT_PAN_BRIDGE],
                        capture_output=True)
 
-        # Power off Bluetooth adapter
+        # 8. Power off Bluetooth adapter
         self._bt_power_off()
         print("Bluetooth PAN stopped.")
 
@@ -888,10 +948,14 @@ class EtyperApp:
 
     @staticmethod
     def _bt_disconnect_all():
-        """Disconnect and remove all paired Bluetooth devices."""
+        """Disconnect (but keep pairing of) all Bluetooth devices.
+
+        We keep pairings so returning devices can reconnect without
+        re-pairing each time Ctrl+F is used.
+        """
         try:
             r = subprocess.run(
-                ["bluetoothctl", "devices", "Paired"],
+                ["bluetoothctl", "devices", "Connected"],
                 capture_output=True, text=True, timeout=5,
             )
             for line in r.stdout.strip().splitlines():
@@ -902,13 +966,35 @@ class EtyperApp:
                         ["bluetoothctl", "disconnect", mac],
                         capture_output=True, timeout=5,
                     )
-                    subprocess.run(
-                        ["bluetoothctl", "remove", mac],
-                        capture_output=True, timeout=5,
-                    )
-                    print(f"  BT: removed {mac}")
+                    print(f"  BT: disconnected {mac}")
         except Exception as e:
             print(f"  BT disconnect warning: {e}")
+
+    @classmethod
+    def _cleanup_stale_bt(cls):
+        """Clean up leftover BT state from a previous crash (stale bridge, dnsmasq, etc)."""
+        # Kill any stale dnsmasq bound to the PAN bridge
+        try:
+            r = subprocess.run(
+                ["pgrep", "-f", f"dnsmasq.*{cls.BT_PAN_BRIDGE}"],
+                capture_output=True, text=True, timeout=3,
+            )
+            for pid in r.stdout.strip().splitlines():
+                pid = pid.strip()
+                if pid:
+                    subprocess.run(["kill", pid], capture_output=True, timeout=3)
+                    print(f"  Killed stale dnsmasq (pid {pid})")
+        except Exception:
+            pass
+
+        # Remove stale bridge
+        subprocess.run(
+            ["ip", "link", "del", cls.BT_PAN_BRIDGE],
+            capture_output=True,
+        )
+
+        # Power off adapter
+        cls._bt_power_off()
 
     def _ensure_ssl_cert(self):
         """Generate a self-signed SSL certificate if one doesn't exist."""
@@ -1041,8 +1127,11 @@ class EtyperApp:
             def log_message(self, format, *args):
                 print(f"  [http] {args[0]}")
 
+        class _ReuseHTTPServer(HTTPServer):
+            allow_reuse_address = True
+
         try:
-            server = HTTPServer(("0.0.0.0", port), DocsHandler)
+            server = _ReuseHTTPServer(("0.0.0.0", port), DocsHandler)
             if use_ssl and cert_file:
                 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
                 ctx.load_cert_chain(cert_file, key_file)
@@ -1089,9 +1178,9 @@ class EtyperApp:
         """Start the typewriter."""
         print("=== etyper - E-Paper Typewriter ===")
 
-        # Ensure Bluetooth is off on startup (only used during file server)
+        # Clean up stale BT state from previous crashes
         if HAS_DBUS:
-            self._bt_power_off()
+            self._cleanup_stale_bt()
 
         print("Initializing display...")
         self.epd = EPD42()

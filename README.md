@@ -127,11 +127,14 @@ Download your documents wirelessly via Bluetooth PAN (Personal Area Network). No
 2. On your computer, open **Bluetooth settings** and pair with **"etyper"** (auto-accepts, no PIN needed)
 3. Once paired, open a browser and go to **`https://10.44.0.1`** (accept the certificate warning)
 4. Download individual documents or all at once as a `.zip` file
-5. Press **Ctrl+F** again to stop — all paired devices are disconnected and Bluetooth powers off
+5. Press **Ctrl+F** again to stop — devices are disconnected and Bluetooth powers off
 
 **Notes:**
 - Bluetooth is **off by default** and only activates during file transfer
 - Auto-shuts down after **5 minutes** if you forget to stop it
+- **Pairings are preserved** — once you pair a device, it can reconnect next time without re-pairing
+- SSL certificate persists across reboots (stored in `~/etyper_docs/.ssl/`)
+- Survives crashes: stale bridges and DHCP servers are cleaned up automatically on startup
 - Works best with desktop/laptop browsers — phone Bluetooth PAN support varies by device
 - If your browser forces HTTPS errors, try `http://10.44.0.1:8080` as a fallback
 - Requires `python3-dbus`, `python3-gi`, and `dnsmasq` on the Pi
@@ -239,7 +242,7 @@ epd = EPD42(pins={
 - **Display buffer**: 15,000 bytes (400/8 * 300). 1 bit per pixel, MSB first. 1=white, 0=black.
 - **Deep sleep**: ~1uA current draw. Requires hardware reset to wake.
 - **Typewriter font**: [Atkinson Hyperlegible Mono](https://github.com/googlefonts/atkinson-hyperlegible-next-mono) Medium 16px, 28 chars x 15 lines in portrait mode. Line height follows WCAG 1.5x recommendation. Designed by the Braille Institute for maximum legibility on low-resolution displays. Falls back to DejaVu Sans Mono if not found. Licensed under SIL Open Font License 1.1.
-- **File transfer**: Bluetooth PAN (NAP) with auto-accept D-Bus agent, bridge networking, dnsmasq DHCP, and HTTPS (self-signed cert) + HTTP fallback. Bluetooth is powered off when not in use.
+- **File transfer**: Bluetooth PAN (NAP) with auto-accept D-Bus agent, bridge networking, dnsmasq DHCP, and HTTPS (self-signed cert) + HTTP fallback. Bluetooth is powered off when not in use. Pairings are preserved across sessions; stale state is cleaned up on startup for crash resilience.
 
 ## Project Structure
 
