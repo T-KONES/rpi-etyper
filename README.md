@@ -75,6 +75,7 @@ etyper includes a distraction-free typewriter application inspired by [ZeroWrite
 | Ctrl+N | Save current and create new document |
 | Ctrl+Left | Switch to previous document |
 | Ctrl+Right | Switch to next document |
+| Ctrl+F | Toggle file server via Bluetooth (download docs in browser) |
 | Ctrl+R | Force full display refresh (cleans ghosting) |
 | Ctrl+Q | Sleep / wake toggle (saves on sleep) |
 
@@ -117,6 +118,24 @@ journalctl -u etyper -f         # View live logs
 - Last opened document is tracked in `~/etyper_docs/.last_doc`
 - On startup, the last document is automatically reopened with cursor at the end
 
+### File Transfer (Ctrl+F)
+
+Download your documents wirelessly via Bluetooth PAN (Personal Area Network). No WiFi required — the etyper creates its own network over Bluetooth.
+
+**How it works:**
+1. Press **Ctrl+F** — Bluetooth powers on, the file server starts, and instructions appear on screen
+2. On your computer, open **Bluetooth settings** and pair with **"etyper"** (auto-accepts, no PIN needed)
+3. Once paired, open a browser and go to **`https://10.44.0.1`** (accept the certificate warning)
+4. Download individual documents or all at once as a `.zip` file
+5. Press **Ctrl+F** again to stop — all paired devices are disconnected and Bluetooth powers off
+
+**Notes:**
+- Bluetooth is **off by default** and only activates during file transfer
+- Auto-shuts down after **5 minutes** if you forget to stop it
+- Works best with desktop/laptop browsers — phone Bluetooth PAN support varies by device
+- If your browser forces HTTPS errors, try `http://10.44.0.1:8080` as a fallback
+- Requires `python3-dbus`, `python3-gi`, and `dnsmasq` on the Pi
+
 ---
 
 ## Setup
@@ -139,16 +158,18 @@ ls /dev/spidev*
 
 ```bash
 apt-get update
-apt-get install python3-spidev python3-libgpiod python3-pil python3-evdev
+apt-get install python3-spidev python3-libgpiod python3-pil python3-evdev \
+               python3-dbus python3-gi dnsmasq
 ```
 
-Or via pip (except libgpiod and evdev):
+Or via pip (except system packages):
 
 ```bash
 pip3 install spidev Pillow
 ```
 
-> `python3-libgpiod` and `python3-evdev` must be installed via apt.
+> `python3-libgpiod`, `python3-evdev`, `python3-dbus`, and `python3-gi` must be installed via apt.
+> `dnsmasq` is required for Bluetooth file transfer (DHCP for PAN clients).
 
 ### 3. Run
 
@@ -218,6 +239,7 @@ epd = EPD42(pins={
 - **Display buffer**: 15,000 bytes (400/8 * 300). 1 bit per pixel, MSB first. 1=white, 0=black.
 - **Deep sleep**: ~1uA current draw. Requires hardware reset to wake.
 - **Typewriter font**: [Atkinson Hyperlegible Mono](https://github.com/googlefonts/atkinson-hyperlegible-next-mono) Medium 16px, 28 chars x 15 lines in portrait mode. Line height follows WCAG 1.5x recommendation. Designed by the Braille Institute for maximum legibility on low-resolution displays. Falls back to DejaVu Sans Mono if not found. Licensed under SIL Open Font License 1.1.
+- **File transfer**: Bluetooth PAN (NAP) with auto-accept D-Bus agent, bridge networking, dnsmasq DHCP, and HTTPS (self-signed cert) + HTTP fallback. Bluetooth is powered off when not in use.
 
 ## Project Structure
 

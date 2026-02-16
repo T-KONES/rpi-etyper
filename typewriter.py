@@ -16,7 +16,8 @@ Keyboard shortcuts:
   Ctrl+N  - New document
   Ctrl+S  - Manual save
   Ctrl+R  - Force full refresh (clean ghosting)
-  Ctrl+Q  - Quit
+  Ctrl+F  - Toggle file server (download docs via browser)
+  Ctrl+Q  - Sleep / wake
 
 Usage:
   sudo python3 typewriter.py
@@ -24,11 +25,25 @@ Usage:
 
 import os
 import sys
+import ssl
 import time
 import signal
 import select
 import textwrap
+import subprocess
+import threading
 from datetime import datetime
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from urllib.parse import quote, unquote
+
+try:
+    import dbus
+    import dbus.service
+    import dbus.mainloop.glib
+    from gi.repository import GLib
+    HAS_DBUS = True
+except ImportError:
+    HAS_DBUS = False
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -89,6 +104,47 @@ KEYMAP = {
     ecodes.KEY_SLASH: ("/", "?"),
     ecodes.KEY_SPACE: (" ", " "), ecodes.KEY_TAB: ("    ", "    "),
 } if HAS_EVDEV else {}
+
+
+if HAS_DBUS:
+    class _BtAutoAcceptAgent(dbus.service.Object):
+        """Bluetooth agent that auto-accepts all pairing and service requests."""
+
+        @dbus.service.method("org.bluez.Agent1", in_signature="", out_signature="")
+        def Release(self):
+            pass
+
+        @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
+        def AuthorizeService(self, device, uuid):
+            print(f"  BT: authorized service {uuid}")
+
+        @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="s")
+        def RequestPinCode(self, device):
+            return "0000"
+
+        @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="u")
+        def RequestPasskey(self, device):
+            return dbus.UInt32(0)
+
+        @dbus.service.method("org.bluez.Agent1", in_signature="ouq", out_signature="")
+        def DisplayPasskey(self, device, passkey, entered):
+            pass
+
+        @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
+        def DisplayPinCode(self, device, pincode):
+            pass
+
+        @dbus.service.method("org.bluez.Agent1", in_signature="ou", out_signature="")
+        def RequestConfirmation(self, device, passkey):
+            print(f"  BT: confirmed pairing ({passkey})")
+
+        @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="")
+        def RequestAuthorization(self, device):
+            pass
+
+        @dbus.service.method("org.bluez.Agent1", in_signature="", out_signature="")
+        def Cancel(self):
+            pass
 
 
 class EtyperApp:
@@ -473,6 +529,9 @@ class EtyperApp:
             elif keycode == ecodes.KEY_RIGHT:
                 self._switch_document(+1)
                 return
+            elif keycode == ecodes.KEY_F:
+                self._file_server_mode()
+                return
 
         # Arrow keys
         if keycode == ecodes.KEY_LEFT:
@@ -604,11 +663,435 @@ class EtyperApp:
                 self.keyboard = None
                 time.sleep(1)
 
+    # --- File server mode (Bluetooth PAN) ---
+
+    BT_PAN_IP = "10.44.0.1"
+    BT_PAN_BRIDGE = "pan0"
+    BT_PAN_PORT = 443
+    BT_PAN_TIMEOUT = 300  # auto-shutdown after 5 minutes
+    BT_AGENT_PATH = "/etyper/agent"
+    BT_CERT_DIR = "/tmp/etyper_ssl"
+
+    def _file_server_mode(self):
+        """Start Bluetooth PAN + web server, show instructions, wait for Ctrl+F."""
+        if not HAS_DBUS:
+            print("ERROR: python3-dbus and python3-gi required for file server.")
+            return
+
+        self.save_document()
+
+        url = f"https://{self.BT_PAN_IP}"
+        timeout_min = self.BT_PAN_TIMEOUT // 60
+
+        # Show instructions on e-paper
+        self.epd.init()
+        img = Image.new("1", (PORTRAIT_W, PORTRAIT_H), 255)
+        draw = ImageDraw.Draw(img)
+
+        y = MARGIN_Y + 10
+        draw.text((MARGIN_X, y), "-- File Server --", font=self.font, fill=0)
+        y += self.line_h * 2
+        draw.text((MARGIN_X, y), "1. Pair Bluetooth", font=self.font, fill=0)
+        y += self.line_h
+        draw.text((MARGIN_X, y), "   with \"etyper\"", font=self.font, fill=0)
+        y += self.line_h * 2
+        draw.text((MARGIN_X, y), "2. Open browser:", font=self.font, fill=0)
+        y += self.line_h
+        draw.text((MARGIN_X, y), f"   {url}", font=self.font, fill=0)
+        y += self.line_h * 2
+        draw.text((MARGIN_X, y), f"Auto-off: {timeout_min} min", font=self.font, fill=0)
+        y += self.line_h
+        draw.text((MARGIN_X, y), "Ctrl+F to stop", font=self.font, fill=0)
+
+        img_landscape = img.transpose(Image.Transpose.ROTATE_270)
+        self.epd.display(list(img_landscape.tobytes()))
+
+        # Start Bluetooth PAN and file server
+        bt_state = self._start_bt_pan()
+        if bt_state is None:
+            print("Could not start Bluetooth PAN, aborting.")
+            self._resume_typewriter_display()
+            return
+
+        server = self._start_file_server(self.BT_PAN_PORT)
+        if server is None:
+            self._stop_bt_pan(bt_state)
+            self._resume_typewriter_display()
+            return
+
+        # Also start plain HTTP on port 8080 as fallback for devices
+        # that don't handle self-signed certs well
+        http_server = self._start_file_server(8080, use_ssl=False)
+
+        print(f"File server ready at {url}")
+
+        # Wait for Ctrl+F or timeout
+        self._wait_for_key_or_timeout(ecodes.KEY_F, self.BT_PAN_TIMEOUT)
+
+        # Shut down
+        print("Stopping file server...")
+        server.shutdown()
+        if http_server:
+            http_server.shutdown()
+        self._stop_bt_pan(bt_state)
+        print("File server stopped.")
+
+        self._resume_typewriter_display()
+
+    def _resume_typewriter_display(self):
+        """Reinitialize display and show typewriter screen."""
+        time.sleep(1)
+        self.epd.init()
+        img = self.render()
+        self.epd.display(list(img.tobytes()))
+        self.epd.init_partial()
+        self.needs_display_update = False
+
+    def _start_bt_pan(self):
+        """Set up Bluetooth PAN: agent, bridge, NAP, DHCP. Returns state dict or None."""
+        print("Starting Bluetooth PAN...")
+
+        try:
+            dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+            bus = dbus.SystemBus()
+
+            # Power on adapter
+            props = dbus.Interface(
+                bus.get_object("org.bluez", "/org/bluez/hci0"),
+                "org.freedesktop.DBus.Properties",
+            )
+            props.Set("org.bluez.Adapter1", "Powered", True)
+            time.sleep(0.5)
+
+            # Register auto-accept agent
+            agent = _BtAutoAcceptAgent(bus, self.BT_AGENT_PATH)
+            mgr = dbus.Interface(
+                bus.get_object("org.bluez", "/org/bluez"),
+                "org.bluez.AgentManager1",
+            )
+            mgr.RegisterAgent(self.BT_AGENT_PATH, "DisplayYesNo")
+            mgr.RequestDefaultAgent(self.BT_AGENT_PATH)
+            print("  BT agent registered (auto-accept)")
+
+            # Make adapter discoverable and pairable
+            props.Set("org.bluez.Adapter1", "Alias", "etyper")
+            props.Set("org.bluez.Adapter1", "Discoverable", True)
+            props.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(0))
+            props.Set("org.bluez.Adapter1", "Pairable", True)
+            props.Set("org.bluez.Adapter1", "PairableTimeout", dbus.UInt32(0))
+            print("  BT adapter: etyper, discoverable, pairable")
+
+            # Create bridge for PAN
+            subprocess.run(["ip", "link", "del", self.BT_PAN_BRIDGE],
+                           capture_output=True)
+            time.sleep(0.5)
+            r = subprocess.run(
+                ["ip", "link", "add", self.BT_PAN_BRIDGE, "type", "bridge"],
+                capture_output=True, text=True,
+            )
+            if r.returncode != 0:
+                print(f"  Bridge creation failed: {r.stderr}")
+                mgr.UnregisterAgent(self.BT_AGENT_PATH)
+                return None
+            subprocess.run(
+                ["ip", "addr", "add", f"{self.BT_PAN_IP}/24", "dev", self.BT_PAN_BRIDGE],
+                capture_output=True,
+            )
+            subprocess.run(
+                ["ip", "link", "set", self.BT_PAN_BRIDGE, "up"],
+                capture_output=True,
+            )
+            subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=1"],
+                           capture_output=True)
+            print(f"  Bridge {self.BT_PAN_BRIDGE} up @ {self.BT_PAN_IP}")
+
+            # Register NAP server on the bridge
+            net_server = dbus.Interface(
+                bus.get_object("org.bluez", "/org/bluez/hci0"),
+                "org.bluez.NetworkServer1",
+            )
+            try:
+                net_server.Unregister("nap")
+            except Exception:
+                pass
+            net_server.Register("nap", self.BT_PAN_BRIDGE)
+            print(f"  NAP server registered on {self.BT_PAN_BRIDGE}")
+
+            # Start dnsmasq for DHCP
+            dnsmasq = subprocess.Popen([
+                "dnsmasq",
+                f"--interface={self.BT_PAN_BRIDGE}",
+                "--except-interface=lo",
+                "--bind-interfaces",
+                "--dhcp-range=10.44.0.10,10.44.0.50,255.255.255.0,1h",
+                "--no-daemon", "--no-resolv", "--log-facility=-",
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print("  DHCP server running")
+
+            # Start GLib mainloop for D-Bus event processing
+            loop = GLib.MainLoop()
+            loop_thread = threading.Thread(target=loop.run, daemon=True)
+            loop_thread.start()
+
+            print("Bluetooth PAN ready. Waiting for connections...")
+            return {
+                "bus": bus,
+                "agent": agent,
+                "mgr": mgr,
+                "props": props,
+                "net_server": net_server,
+                "dnsmasq": dnsmasq,
+                "loop": loop,
+            }
+
+        except Exception as e:
+            print(f"BT PAN setup failed: {e}")
+            subprocess.run(["ip", "link", "del", self.BT_PAN_BRIDGE],
+                           capture_output=True)
+            return None
+
+    def _stop_bt_pan(self, state):
+        """Tear down Bluetooth PAN, disconnect devices, and power off Bluetooth."""
+        print("Stopping Bluetooth PAN...")
+        try:
+            state["dnsmasq"].terminate()
+            state["loop"].quit()
+            state["net_server"].Unregister("nap")
+            state["props"].Set("org.bluez.Adapter1", "Discoverable", False)
+            state["props"].Set("org.bluez.Adapter1", "Pairable", False)
+            state["mgr"].UnregisterAgent(self.BT_AGENT_PATH)
+        except Exception as e:
+            print(f"  BT cleanup warning: {e}")
+
+        # Disconnect all connected BT devices
+        self._bt_disconnect_all()
+
+        # Remove bridge
+        subprocess.run(["ip", "link", "del", self.BT_PAN_BRIDGE],
+                       capture_output=True)
+
+        # Power off Bluetooth adapter
+        self._bt_power_off()
+        print("Bluetooth PAN stopped.")
+
+    @staticmethod
+    def _bt_power_off():
+        """Power off the Bluetooth adapter via bluetoothctl."""
+        try:
+            subprocess.run(
+                ["bluetoothctl", "power", "off"],
+                capture_output=True, timeout=5,
+            )
+            print("  BT adapter powered off")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _bt_disconnect_all():
+        """Disconnect and remove all paired Bluetooth devices."""
+        try:
+            r = subprocess.run(
+                ["bluetoothctl", "devices", "Paired"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in r.stdout.strip().splitlines():
+                parts = line.split()
+                if len(parts) >= 2:
+                    mac = parts[1]
+                    subprocess.run(
+                        ["bluetoothctl", "disconnect", mac],
+                        capture_output=True, timeout=5,
+                    )
+                    subprocess.run(
+                        ["bluetoothctl", "remove", mac],
+                        capture_output=True, timeout=5,
+                    )
+                    print(f"  BT: removed {mac}")
+        except Exception as e:
+            print(f"  BT disconnect warning: {e}")
+
+    def _ensure_ssl_cert(self):
+        """Generate a self-signed SSL certificate if one doesn't exist."""
+        os.makedirs(self.BT_CERT_DIR, exist_ok=True)
+        cert_file = os.path.join(self.BT_CERT_DIR, "cert.pem")
+        key_file = os.path.join(self.BT_CERT_DIR, "key.pem")
+
+        if os.path.exists(cert_file) and os.path.exists(key_file):
+            return cert_file, key_file
+
+        print("  Generating SSL certificate...")
+        r = subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048",
+            "-keyout", key_file, "-out", cert_file,
+            "-days", "3650", "-nodes",
+            "-subj", "/CN=etyper/O=etyper",
+        ], capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"  SSL cert generation failed: {r.stderr}")
+            return None, None
+        return cert_file, key_file
+
+    def _start_file_server(self, port, use_ssl=True):
+        """Start a threaded HTTP(S) server serving the documents directory."""
+        docs_dir = DOCS_DIR
+
+        cert_file, key_file = None, None
+        if use_ssl:
+            cert_file, key_file = self._ensure_ssl_cert()
+            if cert_file is None:
+                print("Could not generate SSL certificate.")
+                return None
+
+        class DocsHandler(SimpleHTTPRequestHandler):
+            """Serve document listing and file downloads."""
+
+            def do_GET(self):
+                if self.path == "/" or self.path == "":
+                    self._serve_index()
+                elif self.path == "/download-all":
+                    self._serve_zip()
+                elif self.path.startswith("/dl/"):
+                    self._serve_file(unquote(self.path[4:]))
+                else:
+                    self.send_error(404)
+
+            def _serve_index(self):
+                files = sorted(
+                    f for f in os.listdir(docs_dir)
+                    if f.endswith(".txt") and f.startswith("doc_")
+                )
+                html = (
+                    "<!DOCTYPE html><html><head>"
+                    "<meta charset='utf-8'>"
+                    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                    "<title>etyper documents</title>"
+                    "<style>"
+                    "body{font-family:system-ui,sans-serif;max-width:600px;"
+                    "margin:2em auto;padding:0 1em;background:#f8f8f8;color:#222}"
+                    "h1{font-size:1.4em;border-bottom:2px solid #222;padding-bottom:.3em}"
+                    "a{color:#222;text-decoration:none;display:block;padding:.7em;"
+                    "margin:.3em 0;background:#fff;border:1px solid #ccc;border-radius:4px}"
+                    "a:hover{background:#eee}"
+                    ".meta{color:#888;font-size:.85em}"
+                    ".dl-all{text-align:center;margin-top:1.5em}"
+                    ".dl-all a{display:inline-block;background:#222;color:#fff;"
+                    "padding:.6em 1.5em;border:none}"
+                    ".dl-all a:hover{background:#444}"
+                    "</style></head><body>"
+                    "<h1>etyper documents</h1>"
+                )
+                if not files:
+                    html += "<p>No documents yet.</p>"
+                else:
+                    for f in reversed(files):
+                        fpath = os.path.join(docs_dir, f)
+                        size = os.path.getsize(fpath)
+                        if size < 1024:
+                            size_str = f"{size} B"
+                        else:
+                            size_str = f"{size / 1024:.1f} KB"
+                        html += (
+                            f"<a href='/dl/{quote(f)}'>"
+                            f"{f} <span class='meta'>({size_str})</span></a>"
+                        )
+                    html += (
+                        "<div class='dl-all'>"
+                        "<a href='/download-all'>Download all as .zip</a>"
+                        "</div>"
+                    )
+                html += "</body></html>"
+                data = html.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", len(data))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def _serve_file(self, filename):
+                fpath = os.path.join(docs_dir, os.path.basename(filename))
+                if not os.path.isfile(fpath):
+                    self.send_error(404)
+                    return
+                data = open(fpath, "rb").read()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Disposition",
+                                 f"attachment; filename=\"{os.path.basename(fpath)}\"")
+                self.send_header("Content-Length", len(data))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def _serve_zip(self):
+                import zipfile
+                import io
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for f in os.listdir(docs_dir):
+                        if f.endswith(".txt") and f.startswith("doc_"):
+                            zf.write(os.path.join(docs_dir, f), f)
+                data = buf.getvalue()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Disposition",
+                                 "attachment; filename=\"etyper_docs.zip\"")
+                self.send_header("Content-Length", len(data))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, format, *args):
+                print(f"  [http] {args[0]}")
+
+        try:
+            server = HTTPServer(("0.0.0.0", port), DocsHandler)
+            if use_ssl and cert_file:
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                ctx.load_cert_chain(cert_file, key_file)
+                server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        except OSError as e:
+            print(f"Could not start server on port {port}: {e}")
+            return None
+
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        return server
+
+    def _wait_for_key_or_timeout(self, target_key, timeout=0):
+        """Block until Ctrl+<target_key> is pressed or timeout expires (0=no timeout)."""
+        ctrl_held = False
+        start = time.time()
+        while self.running:
+            if timeout > 0 and time.time() - start >= timeout:
+                print("Timeout reached.")
+                return
+            if self.keyboard is None:
+                self.keyboard = self._find_keyboard()
+                if self.keyboard is None:
+                    time.sleep(1)
+                    continue
+            try:
+                r, _, _ = select.select([self.keyboard.fd], [], [], 1.0)
+                if not r:
+                    continue
+                for event in self.keyboard.read():
+                    if event.type != ecodes.EV_KEY:
+                        continue
+                    if event.code in (ecodes.KEY_LEFTCTRL, ecodes.KEY_RIGHTCTRL):
+                        ctrl_held = event.value != 0
+                    elif event.code == target_key and event.value == 1 and ctrl_held:
+                        return
+            except OSError:
+                self.keyboard = None
+                time.sleep(1)
+
     # --- Main loop ---
 
     def run(self):
         """Start the typewriter."""
         print("=== etyper - E-Paper Typewriter ===")
+
+        # Ensure Bluetooth is off on startup (only used during file server)
+        if HAS_DBUS:
+            self._bt_power_off()
 
         print("Initializing display...")
         self.epd = EPD42()
