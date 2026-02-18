@@ -96,8 +96,8 @@ sudo python3 typewriter.py
 **Run as boot service (auto-starts on power on):**
 ```bash
 sudo bash install.sh
-# Or manually:
-sudo cp etyper.service /etc/systemd/system/
+# Or manually (replace /path/to/etyper with your actual install path):
+sed "s|__INSTALL_DIR__|/path/to/etyper|g" etyper.service | sudo tee /etc/systemd/system/etyper.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now etyper
 ```
