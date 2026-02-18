@@ -23,6 +23,13 @@ apt-get install -y \
     dnsmasq \
     openssl
 
+# Disable the system dnsmasq service -- etyper starts its own instance
+# only during file transfer, and the system service would conflict on port 53
+if systemctl is-enabled dnsmasq &>/dev/null; then
+    echo "Disabling system dnsmasq service (etyper manages its own instance)..."
+    systemctl disable --now dnsmasq
+fi
+
 # Create documents directory
 DOCS_DIR="$HOME/etyper_docs"
 mkdir -p "$DOCS_DIR"

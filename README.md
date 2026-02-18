@@ -157,27 +157,36 @@ Reboot. Verify `/dev/spidev1.1` exists:
 ls /dev/spidev*
 ```
 
-### 2. Install dependencies
+### 2. Install dependencies and service
+
+The easiest way is to use the included installer, which installs all dependencies, disables the conflicting system dnsmasq service, and optionally sets up auto-start on boot:
+
+```bash
+cd etyper
+sudo bash install.sh
+```
+
+Or install manually:
 
 ```bash
 apt-get update
 apt-get install python3-spidev python3-libgpiod python3-pil python3-evdev \
-               python3-dbus python3-gi dnsmasq
+               python3-dbus python3-gi dnsmasq openssl
+systemctl disable --now dnsmasq   # prevent conflict with etyper's own instance
 ```
 
-Or via pip (except system packages):
+> `python3-libgpiod`, `python3-evdev`, `python3-dbus`, and `python3-gi` must be installed via apt (not pip).
+> `dnsmasq` is required for Bluetooth file transfer. The system dnsmasq service must be disabled to avoid a port conflict.
+
+### 3. Run the typewriter
 
 ```bash
-pip3 install spidev Pillow
+sudo python3 typewriter.py
 ```
 
-> `python3-libgpiod`, `python3-evdev`, `python3-dbus`, and `python3-gi` must be installed via apt.
-> `dnsmasq` is required for Bluetooth file transfer (DHCP for PAN clients).
-
-### 3. Run
+Or to test the display separately:
 
 ```bash
-cd etyper
 python3 examples/hello_world.py
 ```
 

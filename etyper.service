@@ -1,6 +1,7 @@
 [Unit]
 Description=etyper - E-Paper Typewriter
-After=multi-user.target
+After=multi-user.target bluetooth.service
+Wants=bluetooth.service
 
 [Service]
 Type=simple
