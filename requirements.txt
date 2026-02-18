@@ -1,4 +1,8 @@
 spidev
 Pillow
-# These must be installed via apt (no pip packages):
-#   apt-get install python3-libgpiod python3-evdev
+
+# The following must be installed via apt, not pip:
+#   sudo apt-get install python3-libgpiod python3-evdev python3-dbus python3-gi dnsmasq openssl
+#
+# Or just run:
+#   sudo bash install.sh

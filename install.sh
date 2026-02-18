@@ -5,10 +5,23 @@ set -e
 
 echo "=== etyper installer ==="
 
+if [[ $EUID -ne 0 ]]; then
+    echo "ERROR: Please run as root (sudo bash install.sh)"
+    exit 1
+fi
+
 # Install system dependencies
 echo "Installing dependencies..."
 apt-get update -qq
-apt-get install -y python3-spidev python3-libgpiod python3-pil python3-evdev
+apt-get install -y \
+    python3-spidev \
+    python3-libgpiod \
+    python3-pil \
+    python3-evdev \
+    python3-dbus \
+    python3-gi \
+    dnsmasq \
+    openssl
 
 # Create documents directory
 DOCS_DIR="$HOME/etyper_docs"
@@ -27,10 +40,19 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 
     systemctl daemon-reload
     systemctl enable etyper
-    echo "Service installed. Will start on next boot."
-    echo "  Start now:  sudo systemctl start etyper"
-    echo "  Stop:       sudo systemctl stop etyper"
-    echo "  Logs:       journalctl -u etyper -f"
+
+    read -p "Start etyper now? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        systemctl start etyper
+        echo "etyper started."
+        echo "  Logs:    journalctl -u etyper -f"
+        echo "  Stop:    sudo systemctl stop etyper"
+    else
+        echo "Service installed. Will start on next boot."
+        echo "  Start:   sudo systemctl start etyper"
+        echo "  Logs:    journalctl -u etyper -f"
+    fi
 else
     echo "Skipped service install."
     echo "Run manually: sudo python3 typewriter.py"
