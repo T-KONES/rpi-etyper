@@ -17,6 +17,7 @@ Keyboard shortcuts:
   Ctrl+S  - Manual save
   Ctrl+R  - Force full refresh (clean ghosting)
   Ctrl+F  - Toggle file server (download docs via browser)
+  Ctrl+K  - Choose keyboard layout (arrow keys + Enter)
   Ctrl+Q  - Sleep / wake
 
 Usage:
@@ -53,6 +54,7 @@ from epd42_driver import EPD42
 
 DOCS_DIR = os.path.expanduser("~/etyper_docs")
 LAST_DOC_FILE = os.path.join(DOCS_DIR, ".last_doc")
+LAYOUT_CONFIG_FILE = os.path.join(DOCS_DIR, ".layout")
 AUTOSAVE_INTERVAL = 10  # seconds
 
 # Portrait dimensions (display is 400x300, rotated 90 CCW)
@@ -81,29 +83,232 @@ try:
 except ImportError:
     HAS_EVDEV = False
 
-# Basic US QWERTY keymap: keycode -> (normal, shifted)
-KEYMAP = {
-    ecodes.KEY_A: ("a", "A"), ecodes.KEY_B: ("b", "B"), ecodes.KEY_C: ("c", "C"),
-    ecodes.KEY_D: ("d", "D"), ecodes.KEY_E: ("e", "E"), ecodes.KEY_F: ("f", "F"),
-    ecodes.KEY_G: ("g", "G"), ecodes.KEY_H: ("h", "H"), ecodes.KEY_I: ("i", "I"),
-    ecodes.KEY_J: ("j", "J"), ecodes.KEY_K: ("k", "K"), ecodes.KEY_L: ("l", "L"),
-    ecodes.KEY_M: ("m", "M"), ecodes.KEY_N: ("n", "N"), ecodes.KEY_O: ("o", "O"),
-    ecodes.KEY_P: ("p", "P"), ecodes.KEY_Q: ("q", "Q"), ecodes.KEY_R: ("r", "R"),
-    ecodes.KEY_S: ("s", "S"), ecodes.KEY_T: ("t", "T"), ecodes.KEY_U: ("u", "U"),
-    ecodes.KEY_V: ("v", "V"), ecodes.KEY_W: ("w", "W"), ecodes.KEY_X: ("x", "X"),
-    ecodes.KEY_Y: ("y", "Y"), ecodes.KEY_Z: ("z", "Z"),
-    ecodes.KEY_1: ("1", "!"), ecodes.KEY_2: ("2", "@"), ecodes.KEY_3: ("3", "#"),
-    ecodes.KEY_4: ("4", "$"), ecodes.KEY_5: ("5", "%"), ecodes.KEY_6: ("6", "^"),
-    ecodes.KEY_7: ("7", "&"), ecodes.KEY_8: ("8", "*"), ecodes.KEY_9: ("9", "("),
-    ecodes.KEY_0: ("0", ")"),
-    ecodes.KEY_MINUS: ("-", "_"), ecodes.KEY_EQUAL: ("=", "+"),
-    ecodes.KEY_LEFTBRACE: ("[", "{"), ecodes.KEY_RIGHTBRACE: ("]", "}"),
-    ecodes.KEY_SEMICOLON: (";", ":"), ecodes.KEY_APOSTROPHE: ("'", '"'),
-    ecodes.KEY_GRAVE: ("`", "~"), ecodes.KEY_BACKSLASH: ("\\", "|"),
-    ecodes.KEY_COMMA: (",", "<"), ecodes.KEY_DOT: (".", ">"),
-    ecodes.KEY_SLASH: ("/", "?"),
-    ecodes.KEY_SPACE: (" ", " "), ecodes.KEY_TAB: ("    ", "    "),
-} if HAS_EVDEV else {}
+# Keyboard layouts: name -> {keycode: (normal, shifted)}
+LAYOUTS = {}
+LAYOUT_NAMES = []
+
+if HAS_EVDEV:
+    LAYOUTS["US QWERTY"] = {
+        ecodes.KEY_A: ("a", "A"), ecodes.KEY_B: ("b", "B"), ecodes.KEY_C: ("c", "C"),
+        ecodes.KEY_D: ("d", "D"), ecodes.KEY_E: ("e", "E"), ecodes.KEY_F: ("f", "F"),
+        ecodes.KEY_G: ("g", "G"), ecodes.KEY_H: ("h", "H"), ecodes.KEY_I: ("i", "I"),
+        ecodes.KEY_J: ("j", "J"), ecodes.KEY_K: ("k", "K"), ecodes.KEY_L: ("l", "L"),
+        ecodes.KEY_M: ("m", "M"), ecodes.KEY_N: ("n", "N"), ecodes.KEY_O: ("o", "O"),
+        ecodes.KEY_P: ("p", "P"), ecodes.KEY_Q: ("q", "Q"), ecodes.KEY_R: ("r", "R"),
+        ecodes.KEY_S: ("s", "S"), ecodes.KEY_T: ("t", "T"), ecodes.KEY_U: ("u", "U"),
+        ecodes.KEY_V: ("v", "V"), ecodes.KEY_W: ("w", "W"), ecodes.KEY_X: ("x", "X"),
+        ecodes.KEY_Y: ("y", "Y"), ecodes.KEY_Z: ("z", "Z"),
+        ecodes.KEY_1: ("1", "!"), ecodes.KEY_2: ("2", "@"), ecodes.KEY_3: ("3", "#"),
+        ecodes.KEY_4: ("4", "$"), ecodes.KEY_5: ("5", "%"), ecodes.KEY_6: ("6", "^"),
+        ecodes.KEY_7: ("7", "&"), ecodes.KEY_8: ("8", "*"), ecodes.KEY_9: ("9", "("),
+        ecodes.KEY_0: ("0", ")"),
+        ecodes.KEY_MINUS: ("-", "_"), ecodes.KEY_EQUAL: ("=", "+"),
+        ecodes.KEY_LEFTBRACE: ("[", "{"), ecodes.KEY_RIGHTBRACE: ("]", "}"),
+        ecodes.KEY_SEMICOLON: (";", ":"), ecodes.KEY_APOSTROPHE: ("'", '"'),
+        ecodes.KEY_GRAVE: ("`", "~"), ecodes.KEY_BACKSLASH: ("\\", "|"),
+        ecodes.KEY_COMMA: (",", "<"), ecodes.KEY_DOT: (".", ">"),
+        ecodes.KEY_SLASH: ("/", "?"),
+        ecodes.KEY_SPACE: (" ", " "), ecodes.KEY_TAB: ("    ", "    "),
+    }
+
+    LAYOUTS["UK QWERTY"] = {
+        **LAYOUTS["US QWERTY"],
+        ecodes.KEY_2: ("2", '"'),
+        ecodes.KEY_3: ("3", "\u00a3"),   # £
+        ecodes.KEY_APOSTROPHE: ("'", "@"),
+        ecodes.KEY_BACKSLASH: ("#", "~"),
+        ecodes.KEY_GRAVE: ("`", "\u00ac"),  # ¬
+    }
+
+    LAYOUTS["DE QWERTZ"] = {
+        **LAYOUTS["US QWERTY"],
+        # Y and Z are swapped on German keyboards
+        ecodes.KEY_Y: ("z", "Z"),
+        ecodes.KEY_Z: ("y", "Y"),
+        # Umlauts
+        ecodes.KEY_SEMICOLON: ("\u00f6", "\u00d6"),   # ö Ö
+        ecodes.KEY_APOSTROPHE: ("\u00e4", "\u00c4"),  # ä Ä
+        ecodes.KEY_LEFTBRACE: ("\u00fc", "\u00dc"),   # ü Ü
+        # Other German-specific symbols
+        ecodes.KEY_MINUS: ("\u00df", "?"),             # ß
+        ecodes.KEY_EQUAL: ("\u00b4", "`"),             # ´
+        ecodes.KEY_RIGHTBRACE: ("+", "*"),
+        ecodes.KEY_BACKSLASH: ("#", "'"),
+        ecodes.KEY_GRAVE: ("^", "\u00b0"),             # °
+        ecodes.KEY_COMMA: (",", ";"),
+        ecodes.KEY_DOT: (".", ":"),
+        ecodes.KEY_SLASH: ("-", "_"),
+    }
+
+    LAYOUTS["US DVORAK"] = {
+        # Letters (physical QWERTY key → Dvorak character)
+        ecodes.KEY_Q: ("'", '"'),  ecodes.KEY_W: (",", "<"),
+        ecodes.KEY_E: (".", ">"),  ecodes.KEY_R: ("p", "P"),
+        ecodes.KEY_T: ("y", "Y"),  ecodes.KEY_Y: ("f", "F"),
+        ecodes.KEY_U: ("g", "G"),  ecodes.KEY_I: ("c", "C"),
+        ecodes.KEY_O: ("r", "R"),  ecodes.KEY_P: ("l", "L"),
+        ecodes.KEY_A: ("a", "A"),  ecodes.KEY_S: ("o", "O"),
+        ecodes.KEY_D: ("e", "E"),  ecodes.KEY_F: ("u", "U"),
+        ecodes.KEY_G: ("i", "I"),  ecodes.KEY_H: ("d", "D"),
+        ecodes.KEY_J: ("h", "H"),  ecodes.KEY_K: ("t", "T"),
+        ecodes.KEY_L: ("n", "N"),  ecodes.KEY_SEMICOLON: ("s", "S"),
+        ecodes.KEY_APOSTROPHE: ("-", "_"),
+        ecodes.KEY_Z: (";", ":"),  ecodes.KEY_X: ("q", "Q"),
+        ecodes.KEY_C: ("j", "J"),  ecodes.KEY_V: ("k", "K"),
+        ecodes.KEY_B: ("x", "X"),  ecodes.KEY_N: ("b", "B"),
+        ecodes.KEY_M: ("m", "M"),
+        ecodes.KEY_COMMA: ("w", "W"), ecodes.KEY_DOT: ("v", "V"),
+        ecodes.KEY_SLASH: ("z", "Z"),
+        # Symbols
+        ecodes.KEY_LEFTBRACE: ("/", "?"),  ecodes.KEY_RIGHTBRACE: ("=", "+"),
+        ecodes.KEY_MINUS: ("[", "{"),      ecodes.KEY_EQUAL: ("]", "}"),
+        ecodes.KEY_GRAVE: ("`", "~"),      ecodes.KEY_BACKSLASH: ("\\", "|"),
+        # Digits unchanged
+        ecodes.KEY_1: ("1", "!"), ecodes.KEY_2: ("2", "@"), ecodes.KEY_3: ("3", "#"),
+        ecodes.KEY_4: ("4", "$"), ecodes.KEY_5: ("5", "%"), ecodes.KEY_6: ("6", "^"),
+        ecodes.KEY_7: ("7", "&"), ecodes.KEY_8: ("8", "*"), ecodes.KEY_9: ("9", "("),
+        ecodes.KEY_0: ("0", ")"),
+        ecodes.KEY_SPACE: (" ", " "), ecodes.KEY_TAB: ("    ", "    "),
+    }
+
+    # FR AZERTY — physical QWERTY key positions produce French AZERTY characters
+    LAYOUTS["FR AZERTY"] = {
+        # Number row: digits require Shift; unshifted gives French symbols
+        ecodes.KEY_1: ("&", "1"),   ecodes.KEY_2: ("\u00e9", "2"),  # é
+        ecodes.KEY_3: ('"', "3"),   ecodes.KEY_4: ("'", "4"),
+        ecodes.KEY_5: ("(", "5"),   ecodes.KEY_6: ("-", "6"),
+        ecodes.KEY_7: ("\u00e8", "7"),  # è
+        ecodes.KEY_8: ("_", "8"),
+        ecodes.KEY_9: ("\u00e7", "9"),  # ç
+        ecodes.KEY_0: ("\u00e0", "0"),  # à
+        ecodes.KEY_MINUS: (")", "\u00b0"),   # °
+        ecodes.KEY_EQUAL: ("=", "+"),
+        # Top letter row: A and Q swapped, Z and W swapped
+        ecodes.KEY_Q: ("a", "A"),   ecodes.KEY_W: ("z", "Z"),
+        ecodes.KEY_E: ("e", "E"),   ecodes.KEY_R: ("r", "R"),
+        ecodes.KEY_T: ("t", "T"),   ecodes.KEY_Y: ("y", "Y"),
+        ecodes.KEY_U: ("u", "U"),   ecodes.KEY_I: ("i", "I"),
+        ecodes.KEY_O: ("o", "O"),   ecodes.KEY_P: ("p", "P"),
+        ecodes.KEY_LEFTBRACE: ("^", "\u00a8"),   # ¨
+        ecodes.KEY_RIGHTBRACE: ("$", "\u00a3"),  # £
+        # Middle row
+        ecodes.KEY_A: ("q", "Q"),   ecodes.KEY_S: ("s", "S"),
+        ecodes.KEY_D: ("d", "D"),   ecodes.KEY_F: ("f", "F"),
+        ecodes.KEY_G: ("g", "G"),   ecodes.KEY_H: ("h", "H"),
+        ecodes.KEY_J: ("j", "J"),   ecodes.KEY_K: ("k", "K"),
+        ecodes.KEY_L: ("l", "L"),
+        ecodes.KEY_SEMICOLON: ("m", "M"),
+        ecodes.KEY_APOSTROPHE: ("\u00f9", "%"),  # ù
+        ecodes.KEY_BACKSLASH: ("*", "\u00b5"),   # µ
+        ecodes.KEY_GRAVE: ("\u00b2", ""),         # ²
+        # Bottom row: Z→W swap handled above
+        ecodes.KEY_Z: ("w", "W"),   ecodes.KEY_X: ("x", "X"),
+        ecodes.KEY_C: ("c", "C"),   ecodes.KEY_V: ("v", "V"),
+        ecodes.KEY_B: ("b", "B"),   ecodes.KEY_N: ("n", "N"),
+        ecodes.KEY_M: (",", "?"),
+        ecodes.KEY_COMMA: (";", "."),
+        ecodes.KEY_DOT: (":", "/"),
+        ecodes.KEY_SLASH: ("!", "\u00a7"),  # §
+        ecodes.KEY_SPACE: (" ", " "), ecodes.KEY_TAB: ("    ", "    "),
+    }
+
+    # ES QWERTY — Spanish, adds ñ and rearranges some symbols
+    LAYOUTS["ES QWERTY"] = {
+        **LAYOUTS["US QWERTY"],
+        ecodes.KEY_2: ("2", '"'),
+        ecodes.KEY_3: ("3", "\u00b7"),     # · middle dot
+        ecodes.KEY_6: ("6", "&"),
+        ecodes.KEY_7: ("7", "/"),
+        ecodes.KEY_8: ("8", "("),
+        ecodes.KEY_9: ("9", ")"),
+        ecodes.KEY_0: ("0", "="),
+        ecodes.KEY_MINUS: ("'", "?"),
+        ecodes.KEY_EQUAL: ("\u00a1", "\u00bf"),  # ¡ ¿
+        ecodes.KEY_LEFTBRACE: ("`", "^"),
+        ecodes.KEY_RIGHTBRACE: ("+", "*"),
+        ecodes.KEY_SEMICOLON: ("\u00f1", "\u00d1"),  # ñ Ñ
+        ecodes.KEY_APOSTROPHE: ("`", "^"),
+        ecodes.KEY_GRAVE: ("\u00ba", "\u00aa"),      # º ª
+        ecodes.KEY_BACKSLASH: ("\u00e7", "\u00c7"),  # ç Ç
+        ecodes.KEY_COMMA: (",", ";"),
+        ecodes.KEY_DOT: (".", ":"),
+        ecodes.KEY_SLASH: ("-", "_"),
+    }
+
+    # SE QWERTY — Swedish/Finnish, adds å ä ö
+    LAYOUTS["SE QWERTY"] = {
+        **LAYOUTS["US QWERTY"],
+        ecodes.KEY_LEFTBRACE: ("\u00e5", "\u00c5"),   # å Å
+        ecodes.KEY_SEMICOLON: ("\u00f6", "\u00d6"),   # ö Ö
+        ecodes.KEY_APOSTROPHE: ("\u00e4", "\u00c4"),  # ä Ä
+        ecodes.KEY_RIGHTBRACE: ("~", "^"),
+        ecodes.KEY_MINUS: ("+", "?"),
+        ecodes.KEY_EQUAL: ("`", "`"),
+        ecodes.KEY_GRAVE: ("\u00a7", "\u00bd"),        # § ½
+        ecodes.KEY_BACKSLASH: ("'", "*"),
+        ecodes.KEY_COMMA: (",", ";"),
+        ecodes.KEY_DOT: (".", ":"),
+        ecodes.KEY_SLASH: ("-", "_"),
+    }
+
+    # NO/DK QWERTY — Norwegian/Danish, adds å æ ø
+    LAYOUTS["NO/DK QWERTY"] = {
+        **LAYOUTS["US QWERTY"],
+        ecodes.KEY_LEFTBRACE: ("\u00e5", "\u00c5"),   # å Å
+        ecodes.KEY_SEMICOLON: ("\u00f8", "\u00d8"),   # ø Ø
+        ecodes.KEY_APOSTROPHE: ("\u00e6", "\u00c6"),  # æ Æ
+        ecodes.KEY_RIGHTBRACE: ("~", "^"),
+        ecodes.KEY_MINUS: ("+", "?"),
+        ecodes.KEY_EQUAL: ("`", "`"),
+        ecodes.KEY_GRAVE: ("|", "\u00a7"),             # | §
+        ecodes.KEY_BACKSLASH: ("'", "*"),
+        ecodes.KEY_COMMA: (",", ";"),
+        ecodes.KEY_DOT: (".", ":"),
+        ecodes.KEY_SLASH: ("-", "_"),
+    }
+
+    # IT QWERTY — Italian, adds à è é ì ò ù
+    LAYOUTS["IT QWERTY"] = {
+        **LAYOUTS["US QWERTY"],
+        ecodes.KEY_2: ("2", '"'),
+        ecodes.KEY_3: ("3", "\u00a3"),             # £
+        ecodes.KEY_6: ("6", "&"),
+        ecodes.KEY_7: ("7", "/"),
+        ecodes.KEY_8: ("8", "("),
+        ecodes.KEY_9: ("9", ")"),
+        ecodes.KEY_0: ("0", "="),
+        ecodes.KEY_MINUS: ("'", "?"),
+        ecodes.KEY_EQUAL: ("\u00ec", "^"),          # ì
+        ecodes.KEY_LEFTBRACE: ("\u00e8", "\u00e9"), # è é
+        ecodes.KEY_RIGHTBRACE: ("+", "*"),
+        ecodes.KEY_SEMICOLON: ("\u00f2", "\u00e7"), # ò ç
+        ecodes.KEY_APOSTROPHE: ("\u00e0", "\u00b0"), # à °
+        ecodes.KEY_GRAVE: ("\\", "|"),
+        ecodes.KEY_BACKSLASH: ("\u00f9", "\u00a7"), # ù §
+        ecodes.KEY_COMMA: (",", ";"),
+        ecodes.KEY_DOT: (".", ":"),
+        ecodes.KEY_SLASH: ("-", "_"),
+    }
+
+    # Colemak — popular ergonomic layout, great for prose writing
+    # Only 17 keys differ from QWERTY; hands stay on home row much more
+    LAYOUTS["Colemak"] = {
+        **LAYOUTS["US QWERTY"],
+        ecodes.KEY_E: ("f", "F"),    ecodes.KEY_R: ("p", "P"),
+        ecodes.KEY_T: ("g", "G"),    ecodes.KEY_Y: ("j", "J"),
+        ecodes.KEY_U: ("l", "L"),    ecodes.KEY_I: ("u", "U"),
+        ecodes.KEY_O: ("y", "Y"),    ecodes.KEY_P: (";", ":"),
+        ecodes.KEY_S: ("r", "R"),    ecodes.KEY_D: ("s", "S"),
+        ecodes.KEY_F: ("t", "T"),    ecodes.KEY_G: ("d", "D"),
+        ecodes.KEY_J: ("n", "N"),    ecodes.KEY_K: ("e", "E"),
+        ecodes.KEY_L: ("i", "I"),    ecodes.KEY_SEMICOLON: ("o", "O"),
+        ecodes.KEY_N: ("k", "K"),
+    }
+
+    LAYOUT_NAMES = list(LAYOUTS.keys())
+
+# Default/fallback keymap (US QWERTY)
+KEYMAP = LAYOUTS.get("US QWERTY", {})
 
 
 if HAS_DBUS:
@@ -162,6 +367,8 @@ class EtyperApp:
         self.font = None
         self.shift_held = False
         self.ctrl_held = False
+        self.active_layout = "US QWERTY"
+        self.keymap = KEYMAP
         self.chars_per_line = 30
         self.lines_per_page = 20
         self.needs_display_update = True
@@ -207,6 +414,120 @@ class EtyperApp:
 
         print("WARNING: No keyboard found. Waiting for connection...")
         return None
+
+    # --- Layout management ---
+
+    def _load_layout_pref(self):
+        """Load saved keyboard layout preference from disk."""
+        self._ensure_docs_dir()
+        if os.path.exists(LAYOUT_CONFIG_FILE):
+            name = open(LAYOUT_CONFIG_FILE).read().strip()
+            if name in LAYOUTS:
+                self.active_layout = name
+                self.keymap = LAYOUTS[name]
+                print(f"Layout: {name}")
+                return
+        self.active_layout = "US QWERTY"
+        self.keymap = LAYOUTS.get("US QWERTY", KEYMAP)
+
+    def _save_layout_pref(self):
+        """Save current keyboard layout preference to disk."""
+        self._ensure_docs_dir()
+        with open(LAYOUT_CONFIG_FILE, "w") as f:
+            f.write(self.active_layout)
+
+    def _show_layout_picker(self):
+        """Show a full-screen layout picker on the e-paper display.
+
+        Navigate with Up/Down, confirm with Enter, cancel with Escape or Ctrl+K.
+        """
+        if not LAYOUT_NAMES:
+            return
+
+        selected = LAYOUT_NAMES.index(self.active_layout) if self.active_layout in LAYOUT_NAMES else 0
+
+        def render_picker(sel_idx):
+            img = Image.new("1", (PORTRAIT_W, PORTRAIT_H), 255)
+            draw = ImageDraw.Draw(img)
+
+            title = "-- Keyboard Layout --"
+            tw = int(self.font.getlength(title))
+            draw.text(((PORTRAIT_W - tw) // 2, MARGIN_Y + 4), title, font=self.font, fill=0)
+            draw.line([(MARGIN_X, MARGIN_Y + self.line_h + 6),
+                       (PORTRAIT_W - MARGIN_X, MARGIN_Y + self.line_h + 6)], fill=0)
+
+            y = MARGIN_Y + self.line_h + 14
+            for i, name in enumerate(LAYOUT_NAMES):
+                label = f"> {name}" if i == sel_idx else f"  {name}"
+                if i == sel_idx:
+                    draw.rectangle(
+                        [MARGIN_X - 2, y - 1,
+                         PORTRAIT_W - MARGIN_X + 2, y + self.cell_h],
+                        fill=0,
+                    )
+                    draw.text((MARGIN_X + 2, y), label, font=self.font, fill=1)
+                else:
+                    draw.text((MARGIN_X + 2, y), label, font=self.font, fill=0)
+                y += self.line_h + 4
+
+            hint = "Enter=select  Esc=cancel"
+            hw = int(self.font.getlength(hint))
+            hy = PORTRAIT_H - MARGIN_Y - self.cell_h - 2
+            draw.line([(MARGIN_X, hy - 2), (PORTRAIT_W - MARGIN_X, hy - 2)], fill=0)
+            draw.text(((PORTRAIT_W - hw) // 2, hy), hint, font=self.font, fill=0)
+
+            return img.transpose(Image.Transpose.ROTATE_270)
+
+        # Show picker with full refresh
+        self.epd.init()
+        self.epd.display(list(render_picker(selected).tobytes()))
+        self.epd.init_partial()
+
+        # Input loop
+        ctrl_held = False
+        while self.running:
+            if self.keyboard is None:
+                self.keyboard = self._find_keyboard()
+                if self.keyboard is None:
+                    time.sleep(1)
+                    continue
+            try:
+                r, _, _ = select.select([self.keyboard.fd], [], [], 1.0)
+                if not r:
+                    continue
+                for event in self.keyboard.read():
+                    if event.type != ecodes.EV_KEY or event.value == 0:
+                        continue
+                    code = event.code
+
+                    if code in (ecodes.KEY_LEFTCTRL, ecodes.KEY_RIGHTCTRL):
+                        ctrl_held = event.value != 0
+                        continue
+
+                    if code == ecodes.KEY_UP:
+                        selected = (selected - 1) % len(LAYOUT_NAMES)
+                        self.epd.display_image_partial(render_picker(selected))
+
+                    elif code == ecodes.KEY_DOWN:
+                        selected = (selected + 1) % len(LAYOUT_NAMES)
+                        self.epd.display_image_partial(render_picker(selected))
+
+                    elif code == ecodes.KEY_ENTER:
+                        self.active_layout = LAYOUT_NAMES[selected]
+                        self.keymap = LAYOUTS[self.active_layout]
+                        self._save_layout_pref()
+                        print(f"Layout changed to: {self.active_layout}")
+                        self._resume_typewriter_display()
+                        return
+
+                    elif code == ecodes.KEY_ESC or (code == ecodes.KEY_K and ctrl_held):
+                        # Cancel — restore typewriter without changing layout
+                        self._resume_typewriter_display()
+                        return
+
+            except OSError:
+                self.keyboard = None
+                time.sleep(1)
 
     # --- Document management ---
 
@@ -535,6 +856,9 @@ class EtyperApp:
             elif keycode == ecodes.KEY_F:
                 self._file_server_mode()
                 return
+            elif keycode == ecodes.KEY_K:
+                self._show_layout_picker()
+                return
 
         # Arrow keys
         if keycode == ecodes.KEY_LEFT:
@@ -599,8 +923,8 @@ class EtyperApp:
             return
 
         # Regular characters - insert at cursor position
-        if keycode in KEYMAP:
-            normal, shifted = KEYMAP[keycode]
+        if keycode in self.keymap:
+            normal, shifted = self.keymap[keycode]
             char = shifted if self.shift_held else normal
             self.text = self.text[:self.cursor] + char + self.text[self.cursor:]
             self.cursor += len(char)
@@ -1189,6 +1513,7 @@ class EtyperApp:
         self._calc_text_metrics()
         print(f"Text area: {self.chars_per_line} chars x {self.lines_per_page} lines")
 
+        self._load_layout_pref()
         self.load_document()
 
         print("Initial display refresh...")
@@ -1209,7 +1534,7 @@ class EtyperApp:
         signal.signal(signal.SIGTERM, signal_handler)
 
         print("Ready! Start typing...")
-        print("  Arrows: move  |  Ctrl+S: save  |  Ctrl+N: new  |  Ctrl+R: refresh  |  Ctrl+Q: sleep/wake")
+        print("  Arrows: move  |  Ctrl+S: save  |  Ctrl+N: new  |  Ctrl+R: refresh  |  Ctrl+K: layout  |  Ctrl+Q: sleep/wake")
 
         try:
             self._main_loop()

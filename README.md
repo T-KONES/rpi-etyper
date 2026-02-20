@@ -38,7 +38,8 @@ etyper includes a distraction-free typewriter application inspired by [ZeroWrite
 - Portrait display (rotated 90 CCW, 300x400 effective resolution)
 - Auto-opens last document on startup
 - Autosave every 10 seconds
-- USB keyboard input (any standard USB keyboard, US QWERTY layout)
+- USB keyboard input (any standard USB keyboard)
+- Switchable keyboard layout: US QWERTY, UK QWERTY, DE QWERTZ, FR AZERTY, ES QWERTY, IT QWERTY, SE QWERTY, NO/DK QWERTY, Colemak, US DVORAK (Ctrl+K)
 - Full text editing with arrow key cursor movement
 - Word wrap, auto-scrolling to follow cursor
 - Partial refresh for fast typing response (~0.5s per update)
@@ -76,6 +77,7 @@ etyper includes a distraction-free typewriter application inspired by [ZeroWrite
 | Ctrl+Left | Switch to previous document |
 | Ctrl+Right | Switch to next document |
 | Ctrl+F | Toggle file server via Bluetooth (download docs in browser) |
+| Ctrl+K | Choose keyboard layout (Up/Down to browse, Enter to select, Esc to cancel) |
 | Ctrl+R | Force full display refresh (cleans ghosting) |
 | Ctrl+Q | Sleep / wake toggle (saves on sleep) |
 
