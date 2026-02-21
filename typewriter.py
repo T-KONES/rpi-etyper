@@ -744,7 +744,7 @@ class EtyperApp:
         save_indicator = "*" if self.dirty else ""
         line_num = cursor_line + 1
         col_num = cursor_col + 1
-        status = f"{save_indicator}{doc_name} L{line_num}:{col_num} {len(self.text)}c"
+        status = f"{save_indicator}{doc_name}"
         draw.text((MARGIN_X, status_y), status, font=self.font, fill=0)
 
         # Rotate for landscape display
