@@ -26,12 +26,12 @@ from PIL import Image
 EPD_WIDTH = 400
 EPD_HEIGHT = 300
 
-# Default GPIO line numbers (gpiochip1) for Orange Pi Zero 2W
+# Default GPIO line numbers (gpiochip0) for Orange Pi Zero 2W
 DEFAULT_PINS = {
-    "dc": 262,    # Pin 22 / PI6
-    "cs": 229,    # Pin 24 / PH5
-    "rst": 226,   # Pin 11 / PH2
-    "busy": 228,  # Pin 18 / PH4
+    "dc": 25,    # Pin 22 
+    "cs": 27,    # Pin 13
+    "rst": 23,   # Pin 16
+    "busy": 24,  # Pin 18
 }
 
 # Default SPI settings
