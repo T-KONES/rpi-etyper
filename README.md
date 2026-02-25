@@ -2,7 +2,7 @@ A fork of [etyper](https://github.com/Quackieduckie/etyper) designed to work wit
 
 Tested on the **Raspberry Pi Zero 2 W** running **64-bit Raspberry Pi OS Lite (Bookworm)** with a **Waveshare 4.2" V2 e-Paper Module**. Running it on Trixie might cause problems due to its use of `libgpiod2` (or at least that's my understanding).
 
-This version has been found to support wireless keyboard connections via a 2.4GHz USB receiver. It also completely clears the screen in sleep mode and upon terminating the `typewriter.py` script.
+This version has been found to support wireless keyboard connections via a 2.4GHz USB receiver. It also completely clears the screen in sleep mode and upon initiating a clean shutdown of the Pi or terminating the `typewriter.py` script.
 
 To run this fork on the Pi, you need to set the line values of GPIO 27 and GPIO 23 to 0 and connect CS and RST to the corresponding pins. Set the GPIO line values by running `gpioset gpiochip0 27=0 23=0`.
 
