@@ -941,14 +941,7 @@ class EtyperApp:
         if self.epd:
             try:
                 self.epd.init()
-                img = Image.new("1", (PORTRAIT_W, PORTRAIT_H), 255)
-                draw = ImageDraw.Draw(img)
-                draw.text((PORTRAIT_W // 2 - 70, PORTRAIT_H // 2 - 10),
-                          "Saved. Goodbye.", font=self.font, fill=0)
-                draw.text((PORTRAIT_W // 2 - 80, PORTRAIT_H // 2 + 20),
-                          "Ctrl+Q to resume", font=self.font, fill=0)
-                img_landscape = img.transpose(Image.Transpose.ROTATE_270)
-                self.epd.display(list(img_landscape.tobytes()))
+                self.epd.clear(color=0xFF)
                 self.epd.sleep()
             except Exception:
                 pass
@@ -1585,12 +1578,7 @@ class EtyperApp:
         if self.epd:
             try:
                 self.epd.init()
-                img = Image.new("1", (PORTRAIT_W, PORTRAIT_H), 255)
-                draw = ImageDraw.Draw(img)
-                draw.text((PORTRAIT_W // 2 - 60, PORTRAIT_H // 2 - 10),
-                          "Saved. Goodbye.", font=self.font, fill=0)
-                img_landscape = img.transpose(Image.Transpose.ROTATE_270)
-                self.epd.display(list(img_landscape.tobytes()))
+                self.epd.clear(color=0xFF)
                 self.epd.sleep()
             except Exception:
                 pass
