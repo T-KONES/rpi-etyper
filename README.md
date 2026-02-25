@@ -2,14 +2,14 @@ A fork of [etyper](https://github.com/Quackieduckie/etyper) designed to work wit
 
 Tested on the **Raspberry Pi Zero 2 W** running **64-bit Raspberry Pi OS Lite (Bookworm)** with a **Waveshare 4.2" V2 e-Paper Module**. Running it on Trixie might cause problems due to its use of `libgpiod2` (or at least that's my understanding).
 
-To run this fork on the Pi, you need to set the line values of GPIO 27 and GPIO 23 to 0 and connect CS and RST to the corresponding pins. Set the GPIO line values by running `gpioset gpiochip0 27=0 23=0`
+To run this fork on the Pi, you need to set the line values of GPIO 27 and GPIO 23 to 0 and connect CS and RST to the corresponding pins. Set the GPIO line values by running `gpioset gpiochip0 27=0 23=0`.
 
 **Wiring**
 
 | Display Pin | Header Pin | GPIO       | Function           |
 |-------------|-----------|------------|--------------------|
-| DIN / MOSI  | Pin 19    | 10         | SPI1 MOSI (hardware) |
-| CLK / SCK   | Pin 23    | 11         | SPI1 CLK (hardware)  |
+| DIN / MOSI  | Pin 19    | 10         | SPI0 MOSI (hardware) |
+| CLK / SCK   | Pin 23    | 11         | SPI0 CLK (hardware)  |
 | CS          | Pin 13    | 27         | Chip Select (GPIO)   |
 | DC          | Pin 22    | 25         | Data/Command (GPIO)  |
 | RST         | Pin 16    | 23         | Reset (GPIO)         |
