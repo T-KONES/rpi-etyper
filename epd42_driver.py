@@ -35,8 +35,8 @@ DEFAULT_PINS = {
 }
 
 # Default SPI settings
-DEFAULT_SPI_BUS = 1
-DEFAULT_SPI_DEV = 1
+DEFAULT_SPI_BUS = 0
+DEFAULT_SPI_DEV = 0
 DEFAULT_SPI_SPEED = 4_000_000  # 4 MHz
 DEFAULT_SPI_MODE = 0b00        # SPI Mode 0
 
@@ -49,7 +49,7 @@ class EPD42:
 
     def __init__(self, pins=None, spi_bus=DEFAULT_SPI_BUS, spi_dev=DEFAULT_SPI_DEV,
                  spi_speed=DEFAULT_SPI_SPEED, spi_mode=DEFAULT_SPI_MODE,
-                 gpiochip="gpiochip1"):
+                 gpiochip="gpiochip0"):
         """
         Initialize the e-paper driver.
 
