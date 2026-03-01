@@ -10,6 +10,8 @@ Clone the `landscape` branch with `git clone --branch landscape --single-branch 
 
 You do not need to enable SPI1 for this fork.
 
+**Known issues:** The keyboard layout picker screen is a little wonky in landscape mode. The options extend past the bottom margin, causing the Colemak layout option to appear offscreen (it's still there and has NOT been removed! Just scroll down until the black highlight disappears).
+
 **Wiring**
 
 | Display Pin | Header Pin | GPIO       | Function           |
