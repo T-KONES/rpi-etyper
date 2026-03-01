@@ -57,7 +57,7 @@ LAST_DOC_FILE = os.path.join(DOCS_DIR, ".last_doc")
 LAYOUT_CONFIG_FILE = os.path.join(DOCS_DIR, ".layout")
 AUTOSAVE_INTERVAL = 10  # seconds
 
-# Portrait dimensions (display is 400x300, rotated 90 CCW)
+# Landscape dimensions (display is 400x300)
 PORTRAIT_W = 400
 PORTRAIT_H = 300
 
