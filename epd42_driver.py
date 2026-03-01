@@ -56,8 +56,8 @@ class EPD42:
         Args:
             pins: dict with keys 'dc', 'cs', 'rst', 'busy' mapping to GPIO line numbers.
                   Defaults to Orange Pi Zero 2W WeAct pinout.
-            spi_bus: SPI bus number (default 1)
-            spi_dev: SPI device number (default 1)
+            spi_bus: SPI bus number (default 0)
+            spi_dev: SPI device number (default 0)
             spi_speed: SPI clock speed in Hz (default 4MHz)
             spi_mode: SPI mode (default 0)
             gpiochip: GPIO chip name (default "gpiochip1")
