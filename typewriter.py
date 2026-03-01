@@ -58,12 +58,12 @@ LAYOUT_CONFIG_FILE = os.path.join(DOCS_DIR, ".layout")
 AUTOSAVE_INTERVAL = 10  # seconds
 
 # Portrait dimensions (display is 400x300, rotated 90 CCW)
-PORTRAIT_W = 300
-PORTRAIT_H = 400
+PORTRAIT_W = 400
+PORTRAIT_H = 300
 
 # Text layout
-MARGIN_X = 10
-MARGIN_Y = 8
+MARGIN_X = 8
+MARGIN_Y = 10
 
 # Font settings
 FONT_SIZE = 16
@@ -476,7 +476,7 @@ class EtyperApp:
             draw.line([(MARGIN_X, hy - 2), (PORTRAIT_W - MARGIN_X, hy - 2)], fill=0)
             draw.text(((PORTRAIT_W - hw) // 2, hy), hint, font=self.font, fill=0)
 
-            return img.transpose(Image.Transpose.ROTATE_270)
+            return img.rotate(0)
 
         # Show picker with full refresh
         self.epd.init()
@@ -748,7 +748,7 @@ class EtyperApp:
         draw.text((MARGIN_X, status_y), status, font=self.font, fill=0)
 
         # Rotate for landscape display
-        img_landscape = img.transpose(Image.Transpose.ROTATE_270)
+        img_landscape = img.rotate(0)
         return img_landscape
 
     # --- Cursor movement helpers ---
@@ -1023,7 +1023,7 @@ class EtyperApp:
         y += self.line_h
         draw.text((MARGIN_X, y), "Ctrl+F to stop", font=self.font, fill=0)
 
-        img_landscape = img.transpose(Image.Transpose.ROTATE_270)
+        img_landscape = img.rotate(0)
         self.epd.display(list(img_landscape.tobytes()))
 
         # Start Bluetooth PAN and file server
