@@ -6,6 +6,8 @@ This version has been found to support wireless keyboard connections via a 2.4GH
 
 To run this fork on the Pi, you need to set the line values of GPIO 27 and GPIO 23 to 0 and connect CS and RST to the corresponding pins. Set the GPIO line values by running `gpioset gpiochip0 27=0 23=0`.
 
+Clone the `landscape` branch with `git clone --branch landscape --single-branch https://github.com/T-KONES/rpi-etyper` to use in landscape mode.
+
 You do not need to enable SPI1 for this fork.
 
 **Wiring**
