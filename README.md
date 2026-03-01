@@ -1,4 +1,7 @@
-A fork of [etyper](https://github.com/Quackieduckie/etyper) designed to work with the Raspberry Pi Zero 2 W. 
+A fork of [etyper](https://github.com/Quackieduckie/etyper) designed to work with the Raspberry Pi Zero 2 W. Now in landscape mode.
+
+**Known issues:** 
+The keyboard layout picker screen is a little wonky in landscape. The options extend past the bottom margin, causing the Colemak layout option to appear offscreen (it's still there and has NOT been removed! Just scroll down until the black highlight disappears).
 
 Tested on the **Raspberry Pi Zero 2 W** running **64-bit Raspberry Pi OS Lite (Bookworm)** with a **Waveshare 4.2" V2 e-Paper Module**. Running it on Trixie might cause problems due to its use of `libgpiod2` (or at least that's my understanding).
 
